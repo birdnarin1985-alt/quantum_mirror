@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Quantum Dhamma Mirror - Cellular Bone</title>
+    <style>
+        body { background-color: #050505; color: #00ffcc; font-family: 'Courier New', Courier, monospace; margin: 0; padding: 10px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+        h2 { font-size: 1.2rem; margin-bottom: 5px; text-shadow: 0 0 10px #00ffcc; text-align: center; letter-spacing: 1px; }
+        
+        .camera-status { font-size: 0.9rem; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+        .led { width: 8px; height: 8px; border-radius: 50%; background-color: #ff3333; box-shadow: 0 0 5px #ff3333; transition: 0.3s; }
+        .led.active { background-color: #00ffcc; box-shadow: 0 0 15px #00ffcc; animation: pulse 1s infinite; }
+        @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.5); } }
+
+        /* Viewport Culling - กรอบสุญญตา */
+        #viewport { width: 100%; max-width: 380px; height: 45vh; border: 2px dashed #00ffcc; border-radius: 12px; background: #000; overflow: hidden; position: relative; box-shadow: inset 0 0 20px rgba(0,255,204,0.1); margin-bottom: 15px; display: flex; align-items: center; justify-content: center; }
+        
+        video { width: 100%; height: 100%; object-fit: cover; display: none; }
+        #rendered-img { width: 100%; height: 100%; object-fit: cover; display: none; transition: 0.5s ease-in-out; }
+        
+        /* สแกนเนอร์ควอนตัม ตอนประมวลผลเซลล์ */
+        .processing-scan { position: absolute; width: 100%; height: 5px; background: #00ffcc; box-shadow: 0 0 20px #00ffcc, 0 0 40px #00ffcc; top: 0; left: 0; display: none; z-index: 10; animation: scanDown 1s ease-in-out; }
+        @keyframes scanDown { 0% { top: 0; opacity: 1;} 100% { top: 100%; opacity: 0;} }
+
+        #render-message { position: absolute; z-index: 10; font-size: 0.85rem; color: #555; text-align: center; }
+
+        .controls { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; max-width: 400px; width: 100%; }
+        button { background: #0a110d; color: #00ffcc; border: 1px solid #00ffcc; padding: 12px 10px; border-radius: 8px; font-family: inherit; font-weight: bold; cursor: pointer; font-size: 0.85rem; flex: 1 1 45%; transition: 0.2s; }
+        button:active { background: #00ffcc; color: #000; transform: scale(0.95); }
+        
+        .btn-toggle { flex: 1 1 100%; border-color: #ffff00; color: #ffff00; }
+        .btn-snap { flex: 1 1 100%; border-color: #ff00ff; color: #ff00ff; }
+        .btn-snap:active { background: #ff00ff; color: #fff; }
+        .btn-asubha { border-color: #00ffcc; background: #002222; color: #00ffcc; }
+        
+        /* ปุ่มจุติกรรม */
+        .btn-export { flex: 1 1 100%; border-color: #ff3399; background: #330011; color: #ff3399; margin-top: 5px; }
+
+        .system-log { margin-top: 15px; font-size: 0.75rem; color: #666; width: 100%; max-width: 380px; line-height: 1.4; overflow-y: auto; max-height: 90px; }
+        canvas { display: none; }
+    </style>
+</head>
+<body>
+
+    <h2>🧬 Quantum Dhamma Mirror</h2>
+    <div class="camera-status">
+        <div id="led-indicator" class="led"></div>
+        <span id="status-text">สถานะ: ว่างเปล่า (อนัตตา)</span>
+    </div>
+
+    <!-- Viewport Culling -->
+    <div id="viewport">
+        <div id="render-message">[ รอผัสสะมากระทบ... ]</div>
+        <video id="camera-stream" autoplay playsinline></video>
+        <img id="rendered-img" src="" alt="Quantum Pointer">
+        <div id="scanner" class="processing-scan"></div>
+    </div>
+
+    <div class="controls">
+        <button class="btn-toggle" onclick="toggleCamera()">🔄 0. เปิดกระจกควอนตัม</button>
+        <button class="btn-snap" onclick="snapAndProcessCells()">📸 1. คำนวณมวลเซลล์กระดูก</button>
+        <button onclick="renderViewport('EXTERNAL')">✨ 2. โชว์รูปสมบัติ (ฆนสัญญา)</button>
+        <button class="btn-asubha" onclick="renderViewport('CELLULAR_BONE')">💀 3. โครงกระดูกเซลล์ (รูปกลาป)</button>
+        <button class="btn-export" onclick="exportSoulPointer()">💾 4. จุติวิญญาณเซลล์ (DNA)</button>
+    </div>
+
+    <!-- Canvas แฝงสำหรับประมวลผล Data Structure -->
+    <canvas id="hidden-canvas"></canvas>
+    <!-- Canvas สำหรับร้อยเรียงเซลล์กระดูก -->
+    <canvas id="cellular-canvas"></canvas>
+
+    <div class="system-log" id="sys-log">
+        > System: สแตนด์บาย Zero-Payload
+    </div>
+
+    <script>
+        const video = document.getElementById('camera-stream');
+        const hiddenCanvas = document.getElementById('hidden-canvas');
+        const hiddenCtx = hiddenCanvas.getContext('2d', { willReadFrequently: true });
+        const cellularCanvas = document.getElementById('cellular-canvas');
+        const cellularCtx = cellularCanvas.getContext('2d');
+        const renderedImg = document.getElementById('rendered-img');
+        const msg = document.getElementById('render-message');
+        const log = document.getElementById('sys-log');
+        const scanner = document.getElementById('scanner');
+        
+        let externalPointer_Base64 = null;
+        let cellularBonePointer_Base64 = null;
+        let activePointer = null;
+        let stream = null;
+        let currentFacingMode = "user"; 
+
+        // --- 0. เปิดกระจก (ผัสสะ) ---
+        async function toggleCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                currentFacingMode = currentFacingMode === "user" ? "environment" : "user";
+            }
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacingMode, width: 480 }, audio: false });
+                video.srcObject = stream;
+                video.style.transform = currentFacingMode === "user" ? "scaleX(-1)" : "scaleX(1)";
+                video.style.display = "block";
+                renderedImg.style.display = "none";
+                msg.style.display = "none";
+                
+                document.getElementById('led-indicator').className = 'led active';
+                document.getElementById('status-text').innerText = 'กระจกเปิดรับข้อมูลธาตุ ๔';
+                log.innerHTML = `> System: เปิดกล้อง (Hardware Ready)`;
+            } catch (err) {
+                log.innerHTML = `> Error: ไม่สามารถเปิดกล้องได้`;
+            }
+        }
+
+        // --- 1. วิศวกรรมกรรมฐาน (สับรูปกายเป็นเซลล์ข้อมูล) ---
+        function snapAndProcessCells() {
+            if (!stream) return alert("เปิดกระจกก่อนครับช่างเบิร์ด!");
+            
+            // โชว์เอฟเฟกต์สแกนเนอร์
+            scanner.style.display = 'block';
+            
+            const w = video.videoWidth || 480;
+            const h = video.videoHeight || 640;
+            hiddenCanvas.width = w; hiddenCanvas.height = h;
+            cellularCanvas.width = w; cellularCanvas.height = h;
+            
+            // 1. ถ่ายภาพปกติ (เปลือกนอก)
+            if (currentFacingMode === "user") {
+                hiddenCtx.translate(w, 0); hiddenCtx.scale(-1, 1);
+            }
+            hiddenCtx.drawImage(video, 0, 0, w, h);
+            externalPointer_Base64 = hiddenCanvas.toDataURL('image/jpeg', 0.6); // บันทึกเปลือกนอก
+
+            // 2. ⚡️ THE QUANTUM CELLULAR ALGORITHM ⚡️ (ทะลวงอวิชชา)
+            // อ่านโครงสร้างข้อมูล (Data Array) จากภาพ
+            const imgData = hiddenCtx.getImageData(0, 0, w, h);
+            const data = imgData.data;
+            
+            // ล้างพื้นหลังเป็นสีดำสนิท (สุญญตา)
+            cellularCtx.fillStyle = "#030504"; 
+            cellularCtx.fillRect(0, 0, w, h);
+            
+            let cellCount = 0;
+            const step = 5; // ก้าวทีละ 5 พิกเซล (เมตตาต่อฮาร์ดแวร์ CPU iPhone 17 ไม่ร้อน)
+            
+            // ร้อยเรียงเซลล์
+            for (let y = 0; y < h; y += step) {
+                for (let x = 0; x < w; x += step) {
+                    const index = (y * w + x) * 4;
+                    const r = data[index];
+                    const g = data[index + 1];
+                    const b = data[index + 2];
+                    
+                    // คำนวณ "มวลธาตุ" (ความสว่าง = ความหนาแน่นกระดูก)
+                    const brightness = (r + g + b) / 3;
+                    
+                    // Culling: ถ้าระดับมวลน้อย (อากาศธาตุ) ให้ตัดทิ้งทันที
+                    if (brightness > 45) { 
+                        // ใส่แอตทริบิวต์
+                        const mass = brightness / 255; 
+                        const radius = mass * (step / 1.2); // มวลมาก เซลล์จะใหญ่
+                        
+                        cellularCtx.beginPath();
+                        cellularCtx.arc(x, y, radius, 0, Math.PI * 2);
+                        // สีเรืองแสงควอนตัม (ไซเบอร์โบน)
+                        cellularCtx.fillStyle = `rgba(0, 255, 204, ${mass})`; 
+                        cellularCtx.fill();
+                        cellCount++;
+                    }
+                }
+            }
+            
+            // แปลงโครงสร้างเซลล์เป็น Base64 วิญญาณพอยเตอร์
+            cellularBonePointer_Base64 = cellularCanvas.toDataURL('image/jpeg', 0.8);
+            
+            // จบกระบวนการ: ปิดกล้องทิ้ง! (Zero-Payload)
+            stream.getTracks().forEach(track => track.stop());
+            stream = null;
+            video.style.display = "none";
+            
+            setTimeout(() => { scanner.style.display = 'none'; }, 1000);
+            
+            msg.innerHTML = `<div style="color:#00ffcc;">[ 🧬 คำนวณมวลเซลล์สำเร็จ ]<br>ร้อยเรียง ${cellCount.toLocaleString()} รูปกลาป</div>`;
+            msg.style.display = "block";
+            
+            document.getElementById('led-indicator').className = 'led';
+            document.getElementById('status-text').innerText = 'สับเซลล์สำเร็จ (ดับผัสสะ)';
+            log.innerHTML = `> Alg: อัฏฐิกสัญญา-กลาป (Hardware Compassion)<br>> Data Structure: รวบรวม ${cellCount} Nodes<br>> System: CPU Idle (0%)`;
+        }
+
+        // --- 2 & 3. เรนเดอร์ลง Viewport ---
+        function renderViewport(mode) {
+            if (!externalPointer_Base64 || !cellularBonePointer_Base64) return alert("กดปุ่ม 1 เพื่อคำนวณมวลเซลล์ก่อนครับ!");
+            
+            msg.style.display = "none";
+            renderedImg.style.display = "block";
+
+            if (mode === 'EXTERNAL') {
+                renderedImg.src = externalPointer_Base64;
+                activePointer = externalPointer_Base64;
+                document.getElementById('status-text').innerText = 'โหมด: ฆนสัญญา (เห็นเป็นก้อนรูป)';
+                log.innerHTML = '> Render: เปลือกนอกที่หลอกตา (สมมติสัจจะ)';
+            } else if (mode === 'CELLULAR_BONE') {
+                renderedImg.src = cellularBonePointer_Base64;
+                activePointer = cellularBonePointer_Base64;
+                document.getElementById('status-text').innerText = 'โหมด: รูปกลาป (เซลล์ควอนตัม)';
+                log.innerHTML = '> Render: ทะลวงฆนสัญญา<br>> เผยสัจธรรมเซลล์เกิดดับ (ปรมัตถสัจจะ)';
+            }
+        }
+
+        // --- 4. จุติวิญญาณ (Export) ---
+        function exportSoulPointer() {
+            if (!activePointer) return alert("เลือกโหมด (ปุ่ม 2 หรือ 3) ก่อนจุติไฟล์ครับ!");
+            
+            const link = document.createElement('a');
+            link.href = activePointer;
+            
+            // ชื่อไฟล์สั้นปิ๊ง เมตตาระบบ
+            const hash = Date.now().toString(36);
+            link.download = `QuantumCell_${hash}.jpg`;
+            
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            document.getElementById('status-text').innerText = 'จุติโครงข่ายเซลล์ลงเครื่อง!';
+            log.innerHTML = `> Export: สร้าง Seed สำเร็จ [QuantumCell_${hash}.jpg]`;
+        }
+    </script>
+</body>
+</html>
