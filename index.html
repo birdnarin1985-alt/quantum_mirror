@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Quantum Dhamma Mirror - Dual Viewport</title>
+    <style>
+        body { background-color: #030504; color: #00ffcc; font-family: 'Courier New', Courier, monospace; margin: 0; padding: 10px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+        h2 { font-size: 1.2rem; margin-bottom: 5px; text-shadow: 0 0 10px #00ffcc; text-align: center; }
+        
+        .camera-status { font-size: 0.9rem; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+        .led { width: 8px; height: 8px; border-radius: 50%; background-color: #ff3333; box-shadow: 0 0 5px #ff3333; animation: blink 1s infinite; }
+        .led.active { background-color: #00ffcc; box-shadow: 0 0 15px #00ffcc; animation: pulse 1s infinite; }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.5); } }
+
+        /* Viewport Culling & Display */
+        #viewport { width: 100%; max-width: 380px; height: 45vh; border: 2px dashed #00ffcc; border-radius: 12px; background: #000; overflow: hidden; position: relative; box-shadow: inset 0 0 20px rgba(0,255,204,0.2); margin-bottom: 15px; display: flex; align-items: center; justify-content: center; }
+        
+        video { width: 100%; height: 100%; object-fit: cover; display: none; }
+        #rendered-img { width: 100%; height: 100%; object-fit: cover; display: none; }
+        
+        /* ฟิลเตอร์ปรับแสงใสปิ๊ง (ทะลวงอวิชชา) และ X-Ray (อสุภกรรมฐาน) */
+        .xray-filter { filter: invert(1) contrast(1.5) sepia(1) hue-rotate(150deg) saturate(2); }
+        .clear-mirror { filter: brightness(1.2) contrast(1.1); } /* ใสปิ๊งเสมอ */
+        
+        #render-message { position: absolute; z-index: 10; font-size: 0.85rem; color: #aaa; text-align: center; }
+
+        .controls { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; max-width: 400px; width: 100%; }
+        button { background: #0a110d; color: #00ffcc; border: 1px solid #00ffcc; padding: 12px 10px; border-radius: 8px; font-family: inherit; font-weight: bold; cursor: pointer; font-size: 0.85rem; flex: 1 1 45%; transition: 0.2s; }
+        button:active { background: #00ffcc; color: #000; transform: scale(0.95); }
+        
+        .btn-toggle { flex: 1 1 100%; border-color: #ffff00; color: #ffff00; }
+        .btn-snap { flex: 1 1 100%; border-color: #ff00ff; color: #ff00ff; }
+        .btn-snap:active { background: #ff00ff; color: #fff; }
+
+        .system-log { margin-top: 15px; font-size: 0.75rem; color: #666; width: 100%; max-width: 380px; line-height: 1.4; }
+        canvas { display: none; }
+    </style>
+</head>
+<body>
+
+    <h2>👁️ Quantum Dhamma Mirror</h2>
+    <div class="camera-status">
+        <div id="led-indicator" class="led"></div>
+        <span id="status-text">โหมดสุญญตา (ไร้น้ำหนัก)</span>
+    </div>
+
+    <!-- กระจก Viewport -->
+    <div id="viewport">
+        <div id="render-message">[ สแตนด์บาย รอการสัมผัส (ผัสสะ) ]</div>
+        <video id="camera-stream" autoplay playsinline></video>
+        <img id="rendered-img" src="" alt="Soul Pointer">
+    </div>
+
+    <div class="controls">
+        <button class="btn-toggle" onclick="toggleCamera()">🔄 0. เปิดกระจก / สลับกล้อง (หน้า-หลัง)</button>
+        <button class="btn-snap" onclick="snapQuantumPhoto()">📸 1. ดึงวิญญาณพอยเตอร์ (สว่างใสปิ๊ง)</button>
+        <button onclick="renderViewport('EXTERNAL')">✨ 2. โชว์รูปกาย (ใสปิ๊ง)</button>
+        <button onclick="renderViewport('XRAY')" style="color:#ff5555; border-color:#ff5555;">🔬 3. X-Ray (ธาตุ 4)</button>
+    </div>
+
+    <!-- Canvas สำหรับจับภาพและปรับแต่งแสง -->
+    <canvas id="snapshot-canvas"></canvas>
+
+    <div class="system-log" id="sys-log">
+        > System: สแตนด์บาย (Zero CPU Load)<br>
+        > รอการเชื่อมต่อวิญญาณ...
+    </div>
+
+    <script>
+        const video = document.getElementById('camera-stream');
+        const canvas = document.getElementById('snapshot-canvas');
+        const renderedImg = document.getElementById('rendered-img');
+        const msg = document.getElementById('render-message');
+        const log = document.getElementById('sys-log');
+        let activeSoulPointer_Base64 = null;
+        let stream = null;
+        
+        // สถานะเริ่มต้น: กล้องหลัง (พหิทธา - ภายนอก)
+        let currentFacingMode = "environment"; 
+
+        // --- 0. ฟังก์ชันเปิด/สลับกล้อง (Sequential Toggle) ---
+        async function toggleCamera() {
+            // หากมีสตรีมเก่าอยู่ ให้ปิดทิ้งก่อน (เมตตาต่อระบบ ไม่เรนเดอร์ซ้อน)
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                // สลับทิศทางกล้อง (เอกจิตตักขะณะ: รู้ทีละขณะ)
+                currentFacingMode = currentFacingMode === "environment" ? "user" : "environment";
+            } else {
+                // ถ้ายังไม่เคยเปิดเลย ให้เริ่มด้วยกล้องที่เซ็ตไว้
+                currentFacingMode = "environment"; 
+            }
+
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: currentFacingMode }, 
+                    audio: false 
+                });
+                video.srcObject = stream;
+                
+                // ถ่ายกล้องหน้า (เซลฟี่) ให้กลับซ้ายขวาเหมือนกระจก
+                video.style.transform = currentFacingMode === "user" ? "scaleX(-1)" : "scaleX(1)";
+                
+                video.style.display = "block";
+                renderedImg.style.display = "none";
+                msg.style.display = "none";
+                
+                document.getElementById('led-indicator').className = 'led active';
+                let modeText = currentFacingMode === "environment" ? "ส่องภายนอก (พหิทธา)" : "ส่องภายใน (อัชฌัตตัง)";
+                document.getElementById('status-text').innerText = `กล้องทำงาน: ${modeText}`;
+                log.innerHTML = `> System: เปิดกล้องทีละดวง (Hardware Compassion)<br>> โหมด: ${modeText}`;
+            } catch (err) {
+                log.innerHTML = `> Error: เข้าถึงกล้องไม่ได้ (โปรดอนุญาต Safari)`;
+            }
+        }
+
+        // --- 1. ถ่ายภาพและปรับแสงใสปิ๊ง (Quantum Brightness & Snap) ---
+        function snapQuantumPhoto() {
+            if (!stream) {
+                alert("กรุณากดปุ่ม 0 เพื่อเปิดกล้องก่อนครับช่างเบิร์ด!");
+                return;
+            }
+            
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            
+            // กิมมิค: ปรับแสงใสปิ๊ง (ทำลายอวิชชาความมืดมิด) ก่อนวาดลง Canvas
+            ctx.filter = "brightness(1.4) contrast(1.2)";
+            
+            // วาดภาพลง Canvas (สลับซ้ายขวาให้ตรงกับพรีวิวถ้าเป็นกล้องหน้า)
+            if (currentFacingMode === "user") {
+                ctx.translate(canvas.width, 0);
+                ctx.scale(-1, 1);
+            }
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // แปลงเป็น Base64 (วิญญาณพอยเตอร์)
+            activeSoulPointer_Base64 = canvas.toDataURL('image/jpeg', 0.6); 
+            
+            // เมตตาฮาร์ดแวร์: ดับกล้องสดทิ้งทันที! (Zero-Payload)
+            stream.getTracks().forEach(track => track.stop());
+            stream = null;
+            video.style.display = "none";
+            
+            msg.innerHTML = `<div style="color:#ff00ff; animation: pulse 1s;">[ 💾 เก็บวิญญาณพอยเตอร์สำเร็จ! ]<br>สว่างใสปิ๊งในทุกสภาพแสง</div>`;
+            msg.style.display = "block";
+            
+            document.getElementById('led-indicator').style.animation = 'blink 0.5s infinite';
+            document.getElementById('status-text').innerText = 'เข้ารหัส Base64 (ไร้น้ำหนัก)';
+            log.innerHTML = `> System: Auto-Exposure สำเร็จ (ขจัดอวิชชา)<br>> กล้องดับลง ลดภาระ CPU/GPU เหลือ 0%<br>> Pointer Size: ${Math.round(activeSoulPointer_Base64.length / 1024)} KB`;
+        }
+
+        // --- 2 & 3. เรนเดอร์เฉพาะ Viewport ---
+        function renderViewport(layer) {
+            if (!activeSoulPointer_Base64) {
+                alert("ต้องดึงวิญญาณพอยเตอร์ (ปุ่ม 1) ก่อนกางพิมพ์เขียวครับ!");
+                return;
+            }
+
+            renderedImg.src = activeSoulPointer_Base64;
+            renderedImg.style.display = "block";
+            msg.style.display = "none";
+            
+            // ยกเลิกการกลับซ้ายขวาที่ img เพราะเราจัดการที่ canvas ไปแล้ว
+            renderedImg.style.transform = "scaleX(1)";
+
+            if (layer === 'EXTERNAL') {
+                renderedImg.className = "clear-mirror"; // เพิ่มความใสปิ๊ง
+                document.getElementById('status-text').innerText = 'เรนเดอร์รูปกาย (ภายนอก)';
+                log.innerHTML = '> Render: รูปสมบัติ (Just-in-Time)';
+            } else if (layer === 'XRAY') {
+                renderedImg.className = "xray-filter"; // ทะลุถึงธาตุ 4
+                document.getElementById('status-text').innerText = 'เรนเดอร์ X-Ray (อสุภะ)';
+                log.innerHTML = '> Render: ส่องทะลุกระดูก เลือด ธาตุ 4 (สุญญตา)';
+            }
+        }
+    </script>
+</body>
+</html>
