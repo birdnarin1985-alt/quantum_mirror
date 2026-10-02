@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Quantum Dhamma Mirror - Live Viewport</title>
+    <style>
+        body { background-color: #030504; color: #00ffcc; font-family: 'Courier New', Courier, monospace; margin: 0; padding: 10px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+        h2 { font-size: 1.2rem; margin-bottom: 5px; text-shadow: 0 0 10px #00ffcc; text-align: center; }
+        
+        .camera-status { font-size: 0.9rem; margin-bottom: 15px; display: flex; align-items: center; gap: 8px; }
+        .led { width: 8px; height: 8px; border-radius: 50%; background-color: #ff3333; box-shadow: 0 0 5px #ff3333; animation: blink 1s infinite; }
+        .led.active { background-color: #00ffcc; box-shadow: 0 0 15px #00ffcc; animation: pulse 1s infinite; }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.5); } }
+
+        /* Viewport Culling & Display */
+        #viewport { width: 100%; max-width: 380px; height: 450px; border: 2px dashed #00ffcc; border-radius: 12px; background: #000; overflow: hidden; position: relative; box-shadow: inset 0 0 20px rgba(0,255,204,0.2); margin-bottom: 15px; display: flex; align-items: center; justify-content: center; }
+        
+        /* วิดีโอสตรีมสด (จักขุวิญญาณ) */
+        video { width: 100%; height: 100%; object-fit: cover; display: none; transform: scaleX(-1); /* กลับซ้ายขวาเหมือนกระจกเงา */ }
+        
+        /* ภาพที่ถูกเรนเดอร์จากวิญญาณพอยเตอร์ */
+        #rendered-img { width: 100%; height: 100%; object-fit: cover; display: none; transform: scaleX(-1); }
+        
+        /* ฟิลเตอร์ X-Ray สำหรับอสุภกรรมฐาน (โยนิโส) */
+        .xray-filter { filter: invert(1) contrast(1.5) sepia(1) hue-rotate(150deg) saturate(2); }
+        
+        #render-message { position: absolute; z-index: 10; font-size: 0.85rem; color: #aaa; text-align: center; }
+
+        .controls { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; max-width: 400px; width: 100%; }
+        button { background: #0a110d; color: #00ffcc; border: 1px solid #00ffcc; padding: 10px; border-radius: 8px; font-family: inherit; font-weight: bold; cursor: pointer; font-size: 0.85rem; flex: 1 1 45%; transition: 0.2s; }
+        button:active { background: #00ffcc; color: #000; transform: scale(0.95); }
+        button.primary { flex: 1 1 100%; border-color: #ff00ff; color: #ff00ff; }
+        button.primary:active { background: #ff00ff; color: #fff; }
+
+        .system-log { margin-top: 15px; font-size: 0.75rem; color: #666; width: 100%; max-width: 380px; }
+        canvas { display: none; } /* ซ่อนไว้เพื่อใช้เป็นตัวดึงวิญญาณพอยเตอร์เท่านั้น */
+    </style>
+</head>
+<body>
+
+    <h2>👁️ Quantum Dhamma Mirror</h2>
+    <div class="camera-status">
+        <div id="led-indicator" class="led"></div>
+        <span id="status-text">รอเปิดกระจกเงา...</span>
+    </div>
+
+    <!-- กระจก Viewport -->
+    <div id="viewport">
+        <div id="render-message">[ สแตนด์บาย ไร้น้ำหนัก ]</div>
+        <!-- กล้องจริง (ต้องใช้ playsinline สำหรับ iPhone Safari) -->
+        <video id="camera-stream" autoplay playsinline></video>
+        <!-- ภาพที่ดึงมาจากพอยเตอร์ -->
+        <img id="rendered-img" src="" alt="Soul Pointer">
+    </div>
+
+    <div class="controls">
+        <button onclick="startCamera()" style="border-color: #ffff00; color: #ffff00;">0. เปิดกระจก (Live Camera)</button>
+        <button class="primary" onclick="snapQuantumPhoto()">📸 1. ดึงวิญญาณพอยเตอร์ (Snap Base64)</button>
+        <button onclick="renderViewport('EXTERNAL')">✨ 2. โชว์รูปกายภายนอก</button>
+        <button onclick="renderViewport('XRAY')" style="color:#ff5555; border-color:#ff5555;">🔬 3. X-Ray (อสุภะ/ธาตุ 4)</button>
+    </div>
+
+    <!-- Canvas สำหรับจับภาพ (ซ่อนไว้) -->
+    <canvas id="snapshot-canvas"></canvas>
+
+    <div class="system-log" id="sys-log">
+        > System: สแตนด์บาย (Zero Payload)
+    </div>
+
+    <script>
+        const video = document.getElementById('camera-stream');
+        const canvas = document.getElementById('snapshot-canvas');
+        const renderedImg = document.getElementById('rendered-img');
+        const msg = document.getElementById('render-message');
+        const log = document.getElementById('sys-log');
+        let activeSoulPointer_Base64 = null;
+        let stream = null;
+
+        // --- 0. ฟังก์ชันเปิดกล้อง (สตรีมสด) ---
+        async function startCamera() {
+            try {
+                // ขออนุญาตใช้กล้องหน้า (Selfie Mirror)
+                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+                video.srcObject = stream;
+                video.style.display = "block";
+                renderedImg.style.display = "none";
+                msg.style.display = "none";
+                
+                document.getElementById('led-indicator').className = 'led active';
+                document.getElementById('status-text').innerText = 'กล้องทำงาน (ผัสสะเกิด)';
+                log.innerHTML = '> System: Live Stream Active (Cakkhu-viññāṇa)';
+            } catch (err) {
+                log.innerHTML = '> Error: ไม่สามารถเปิดกล้องได้ (เช็ก Permission Safari)';
+            }
+        }
+
+        // --- 1. ถ่ายภาพ และเก็บเฉพาะวิญญาณพอยเตอร์ (Base64) ---
+        function snapQuantumPhoto() {
+            if (!stream) {
+                alert("กรุณาเปิดกระจก (ปุ่ม 0) ก่อนครับช่างเบิร์ด!");
+                return;
+            }
+            // เซ็ตขนาด Canvas ให้เท่ากับวิดีโอ
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            
+            // วาดภาพจากกล้องลง Canvas
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // ดึงเฉพาะ "วิญญาณพอยเตอร์" (แปลงเป็น Base64 String)
+            activeSoulPointer_Base64 = canvas.toDataURL('image/jpeg', 0.5); // บีบอัดลดภาระ
+            
+            // เมตตาต่อฮาร์ดแวร์: ปิดกล้องสดทิ้งไปเลย! (Zero-Waste)
+            stream.getTracks().forEach(track => track.stop());
+            stream = null;
+            video.style.display = "none";
+            
+            // โชว์ข้อความ
+            msg.innerHTML = `<div style="color:#ff00ff;">[ 💾 ดึงวิญญาณพอยเตอร์สำเร็จ! ]<br>กล้องสดดับลงแล้ว (ไร้ภาระ CPU)</div>`;
+            msg.style.display = "block";
+            renderedImg.style.display = "none";
+            
+            document.getElementById('led-indicator').style.animation = 'blink 0.5s infinite';
+            document.getElementById('status-text').innerText = 'เข้ารหัส Base64 สำเร็จ';
+            log.innerHTML = `> System: กล้องดับลง (Anicca)<br>> Saved Soul Pointer: ${activeSoulPointer_Base64.substring(0, 20)}...`;
+        }
+
+        // --- 2 & 3. เรนเดอร์เฉพาะหน้าจอจากวิญญาณพอยเตอร์ ---
+        function renderViewport(layer) {
+            if (!activeSoulPointer_Base64) {
+                alert("ต้องดึงวิญญาณพอยเตอร์ (กดปุ่ม 1) ก่อนกางพิมพ์เขียวครับ!");
+                return;
+            }
+
+            // กางพิมพ์เขียวลง Viewport
+            renderedImg.src = activeSoulPointer_Base64;
+            renderedImg.style.display = "block";
+            msg.style.display = "none";
+
+            if (layer === 'EXTERNAL') {
+                renderedImg.className = ""; // ภาพปกติ (รูปสมบัติ)
+                document.getElementById('status-text').innerText = 'เรนเดอร์รูปกายภายนอก';
+                log.innerHTML = '> Render: External Layer (Just-in-Time)';
+            } else if (layer === 'XRAY') {
+                renderedImg.className = "xray-filter"; // ใส่ CSS Filter เป็น X-Ray
+                document.getElementById('status-text').innerText = 'เรนเดอร์ X-Ray (ธาตุ 4)';
+                log.innerHTML = '> Render: X-Ray Partition (อสุภกรรมฐาน / สุญญตา)';
+            }
+        }
+    </script>
+</body>
+</html>
